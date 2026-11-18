@@ -152,7 +152,7 @@ function live(){
 }
 $("gear").onclick=()=>{$("key").value=key;$("dlg").showModal()};
 $("liqbtn").onclick=()=>{showLiq=!showLiq;store.set("liq",showLiq?"1":"0");ui();drawLiq()};
-$("save").onclick=()=>{key=$("key").value.trim();store.set("td_key",key);$("dlg").close();if(cat!=="cripto")load()};
+$("save").onclick=()=>{key=$("key").value.trim();store.set("td_key",key);$("dlg").close();if(cat==="cripto"){cat="forex";sym=ASSETS.forex[0];ui()}load().then(()=>{if(!$("note").textContent)note("Clave guardada")})};
 ui();
 try{initChart()}catch(e){note("Error del gráfico: "+e.message)}
 load();
