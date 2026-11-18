@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Velas</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/lightweight-charts/4.1.3/lightweight-charts.standalone.production.js"></script>
+<style>
+:root{--bg:#0a1020;--panel:#121a30;--line:#222d4a;--text:#e8ecf7;--mute:#7d8aab;--up:#27d3a2;--down:#ff5c7a;--acc:#6c8cff}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;display:flex;flex-direction:column;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+header{padding:12px 14px 4px;display:flex;justify-content:space-between;align-items:flex-start}
+#name{font-size:15px;color:var(--mute)}
+#price{font-size:30px;font-weight:650;letter-spacing:-.5px;font-variant-numeric:tabular-nums}
+#chg{font-size:14px;font-variant-numeric:tabular-nums}
+.up{color:var(--up)}.down{color:var(--down)}
+.row{display:flex;gap:8px;padding:6px 14px;overflow-x:auto;scrollbar-width:none}
+.row::-webkit-scrollbar{display:none}
+button{font:inherit;color:var(--mute);background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:7px 14px;white-space:nowrap;cursor:pointer}
+button.on{color:var(--bg);background:var(--text);border-color:var(--text);font-weight:600}
+#cats button{border-radius:8px}
+#gear{padding:6px 10px;border-radius:8px}
+#wrap{flex:1;min-height:0;position:relative;margin-top:4px}
+#chart{position:absolute;inset:0}
+#note{position:absolute;left:12px;top:8px;z-index:3;font-size:12px;color:var(--mute);background:rgba(10,16,32,.85);padding:4px 8px;border-radius:6px;max-width:80%}
+#note:empty{display:none}
+dialog{background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:14px;width:min(92vw,380px)}
+dialog::backdrop{background:rgba(0,0,0,.6)}
+input{width:100%;font:inherit;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:10px;margin:8px 0}
+p.s{font-size:13px;color:var(--mute);line-height:1.45;margin:6px 0}
+</style>
+</head>
+<body>
+<header>
+  <div><div id="name">BTC/USDT</div><div id="price">—</div><div id="chg"></div></div>
+  <button id="gear" aria-label="Ajustes">Ajustes</button>
+</header>
+<div class="row" id="cats"></div>
+<div class="row" id="assets"></div>
+<div class="row" id="tfs"></div>
+<div id="wrap"><div id="note"></div><div id="chart"></div></div>
+
+<dialog id="dlg">
+  <b>Ajustes</b>
+  <p class="s">Para forex y acciones pega tu API key gratuita de Twelve Data. Se guarda solo en este navegador.</p>
+  <input id="key" placeholder="API key de Twelve Data" autocomplete="off">
+  <button id="liqbtn" style="width:100%;margin-bottom:8px"></button>
+  <button id="save" class="on" style="width:100%">Guardar</button>
+</dialog>
+
+<script>
+const ASSETS={
+  cripto:["BTCUSDT","ETHUSDT","SOLUSDT","XRPUSDT","BNBUSDT","DOGEUSDT"],
+  forex:["EUR/USD","GBP/USD","USD/JPY","USD/CHF","AUD/USD","USD/MXN"],
+  acciones:["AAPL","TSLA","NVDA","MSFT","AMZN","META"]
+};
+const TF=[["1m","1min","1m"],["5m","5min","5m"],["15m","15min","15m"],["1h","1h","1h"],["4h","4h","4h"],["1D","1day","1d"]];
+const LEVS=[[10,"#6c8cff"],[25,"#f5c04a"],[50,"#ff9b4a"],[100,"#ff5c7a"]];
+let cat="cripto",sym="BTCUSDT",tf=3,ws=null,lines=[],last=null,first=null;
+let store={get:k=>{try{return localStorage.getItem(k)}catch(e){return null}},set:(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}}};
+let key=store.get("td_key")||"",showLiq=store.get("liq")!=="0";
+const $=id=>document.getElementById(id);
+
+const chart=LightweightCharts.createChart($("chart"),{
+  layout:{background:{color:"#0a1020"},textColor:"#7d8aab",fontSize:12},
+  grid:{vertLines:{color:"#101935"},horzLines:{color:"#101935"}},
+  rightPriceScale:{borderVisible:false,scaleMargins:{top:.08,bottom:.22}},
+  timeScale:{borderVisible:false,timeVisible:true,rightOffset:6},
+  crosshair:{mode:0},
+  handleScale:{pinch:true,axisPressedMouseMove:true},
+  handleScroll:{pressedMouseMove:true,horzTouchDrag:true,vertTouchDrag:false}
+});
+const candles=chart.addCandlestickSeries({upColor:"#27d3a2",downColor:"#ff5c7a",borderVisible:false,wickUpColor:"#27d3a2",wickDownColor:"#ff5c7a"});
+const vol=chart.addHistogramSeries({priceFormat:{type:"volume"},priceScaleId:"v"});
+chart.priceScale("v").applyOptions({scaleMargins:{top:.8,bottom:0}});
+new ResizeObserver(()=>chart.applyOptions({width:$("wrap").clientWidth,height:$("wrap").clientHeight})).observe($("wrap"));
+
+function chips(el,items,isOn,fn){
+  el.innerHTML="";
+  items.forEach((t,i)=>{const b=document.createElement("button");b.textContent=Array.isArray(t)?t[0]:t;
+    if(isOn(i))b.className="on";b.onclick=()=>fn(i);el.appendChild(b)});
+}
+function ui(){
+  chips($("cats"),["cripto","forex","acciones"],i=>["cripto","forex","acciones"][i]===cat,i=>{cat=["cripto","forex","acciones"][i];sym=ASSETS[cat][0];ui();load()});
+  chips($("assets"),ASSETS[cat].map(s=>s.replace("USDT","")),i=>ASSETS[cat][i]===sym,i=>{sym=ASSETS[cat][i];ui();load()});
+  chips($("tfs"),TF,i=>i===tf,i=>{tf=i;ui();load()});
+  $("liqbtn").textContent="Niveles de liquidación: "+(showLiq?"sí":"no");
+}
+const fmt=p=>p>=100?p.toFixed(2):p>=1?p.toFixed(4):p.toFixed(5);
+function note(t){$("note").textContent=t||""}
+
+async function getCrypto(){
+  const r=await fetch(`https://api.binance.com/api/v3/klines?symbol=${sym}&interval=${TF[tf][2]}&limit=300`);
+  if(!r.ok)throw new Error("binance");
+  return(await r.json()).map(k=>({time:k[0]/1000,open:+k[1],high:+k[2],low:+k[3],close:+k[4],volume:+k[5]}));
+}
+async function getTD(){
+  if(!key)throw new Error("Falta API key de Twelve Data (Ajustes)");
+  const r=await fetch(`https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(sym)}&interval=${TF[tf][1]}&outputsize=300&apikey=${key}`);
+  const j=await r.json();
+  if(j.status==="error")throw new Error(j.message);
+  return j.values.reverse().map(v=>({time:Date.parse(v.datetime.replace(" ","T")+"Z")/1000,open:+v.open,high:+v.high,low:+v.low,close:+v.close,volume:+(v.volume||0)}));
+}
+function demo(){
+  let p=cat==="forex"?1.1:cat==="acciones"?200:60000,t=Math.floor(Date.now()/1000/3600)*3600,out=[];
+  for(let i=300;i>0;i--){const o=p,c=o*(1+(Math.random()-.5)*.012);
+    out.push({time:t-i*3600,open:o,high:Math.max(o,c)*(1+Math.random()*.003),low:Math.min(o,c)*(1-Math.random()*.003),close:c,volume:Math.random()*100});p=c}
+  return out;
+}
+async function load(){
+  if(ws){ws.onclose=null;ws.close();ws=null}
+  note("Cargando…");
+  let data;
+  try{data=cat==="cripto"?await getCrypto():await getTD();note("")}
+  catch(e){data=demo();note("Datos de demostración: "+(e.message==="binance"||e.message==="Failed to fetch"?"no hay conexión con el proveedor. Abre la app desde tu propio sitio (GitHub Pages).":e.message))}
+  candles.setData(data.map(({time,open,high,low,close})=>({time,open,high,low,close})));
+  vol.setData(data.map(d=>({time:d.time,value:d.volume,color:d.close>=d.open?"rgba(39,211,162,.35)":"rgba(255,92,122,.35)"})));
+  first=data[0].open;last=data[data.length-1].close;
+  header(last);drawLiq();
+  chart.timeScale().fitContent();chart.timeScale().scrollToPosition(6,false);
+  if(cat==="cripto")live();
+}
+function header(p){
+  $("name").textContent=sym.replace("USDT","/USDT");
+  $("price").textContent=fmt(p);
+  const c=(p-first)/first*100;
+  $("chg").textContent=(c>=0?"+":"")+c.toFixed(2)+"% en el rango";
+  $("chg").className=c>=0?"up":"down";
+}
+function drawLiq(){
+  lines.forEach(l=>candles.removePriceLine(l));lines=[];
+  if(!showLiq||cat!=="cripto"||last==null)return;
+  LEVS.forEach(([x,color])=>{
+    lines.push(candles.createPriceLine({price:last*(1+1/x),color,lineWidth:1,lineStyle:2,axisLabelVisible:true,title:`${x}x corto`}));
+    lines.push(candles.createPriceLine({price:last*(1-1/x),color,lineWidth:1,lineStyle:2,axisLabelVisible:true,title:`${x}x largo`}));
+  });
+}
+function live(){
+  try{
+    ws=new WebSocket(`wss://stream.binance.com:9443/ws/${sym.toLowerCase()}@kline_${TF[tf][2]}`);
+    ws.onmessage=e=>{const k=JSON.parse(e.data).k;
+      candles.update({time:k.t/1000,open:+k.o,high:+k.h,low:+k.l,close:+k.c});
+      vol.update({time:k.t/1000,value:+k.v,color:+k.c>=+k.o?"rgba(39,211,162,.35)":"rgba(255,92,122,.35)"});
+      last=+k.c;header(last)};
+    ws.onclose=()=>setTimeout(()=>{if(cat==="cripto")live()},3000);
+  }catch(e){}
+}
+$("gear").onclick=()=>{$("key").value=key;$("dlg").showModal()};
+$("liqbtn").onclick=()=>{showLiq=!showLiq;store.set("liq",showLiq?"1":"0");ui();drawLiq()};
+$("save").onclick=()=>{key=$("key").value.trim();store.set("td_key",key);$("dlg").close();if(cat!=="cripto")load()};
+ui();load();
+</script>
+</body>
+</html>
