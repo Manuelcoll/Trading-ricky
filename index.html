@@ -62,19 +62,22 @@ let store={get:k=>{try{return localStorage.getItem(k)}catch(e){return null}},set
 let key=store.get("td_key")||"",showLiq=store.get("liq")!=="0";
 const $=id=>document.getElementById(id);
 
-const chart=LightweightCharts.createChart($("chart"),{
-  layout:{background:{color:"#0a1020"},textColor:"#7d8aab",fontSize:12},
-  grid:{vertLines:{color:"#101935"},horzLines:{color:"#101935"}},
-  rightPriceScale:{borderVisible:false,scaleMargins:{top:.08,bottom:.22}},
-  timeScale:{borderVisible:false,timeVisible:true,rightOffset:6},
-  crosshair:{mode:0},
-  handleScale:{pinch:true,axisPressedMouseMove:true},
-  handleScroll:{pressedMouseMove:true,horzTouchDrag:true,vertTouchDrag:false}
-});
-const candles=chart.addCandlestickSeries({upColor:"#27d3a2",downColor:"#ff5c7a",borderVisible:false,wickUpColor:"#27d3a2",wickDownColor:"#ff5c7a"});
-const vol=chart.addHistogramSeries({priceFormat:{type:"volume"},priceScaleId:"v"});
-chart.priceScale("v").applyOptions({scaleMargins:{top:.8,bottom:0}});
-new ResizeObserver(()=>chart.applyOptions({width:$("wrap").clientWidth,height:$("wrap").clientHeight})).observe($("wrap"));
+let chart,candles,vol;
+function initChart(){
+  chart=LightweightCharts.createChart($("chart"),{
+    layout:{background:{color:"#0a1020"},textColor:"#7d8aab",fontSize:12},
+    grid:{vertLines:{color:"#101935"},horzLines:{color:"#101935"}},
+    rightPriceScale:{borderVisible:false,scaleMargins:{top:.08,bottom:.22}},
+    timeScale:{borderVisible:false,timeVisible:true,rightOffset:6},
+    crosshair:{mode:0},
+    handleScale:{pinch:true,axisPressedMouseMove:true},
+    handleScroll:{pressedMouseMove:true,horzTouchDrag:true,vertTouchDrag:false}
+  });
+  candles=chart.addCandlestickSeries({upColor:"#27d3a2",downColor:"#ff5c7a",borderVisible:false,wickUpColor:"#27d3a2",wickDownColor:"#ff5c7a"});
+  vol=chart.addHistogramSeries({priceFormat:{type:"volume"},priceScaleId:"v"});
+  chart.priceScale("v").applyOptions({scaleMargins:{top:.8,bottom:0}});
+  new ResizeObserver(()=>chart.applyOptions({width:$("wrap").clientWidth,height:$("wrap").clientHeight})).observe($("wrap"));
+}
 
 function chips(el,items,isOn,fn){
   el.innerHTML="";
@@ -109,6 +112,7 @@ function demo(){
   return out;
 }
 async function load(){
+  if(!candles){note("No se pudo cargar la librería del gráfico. Revisa tu conexión.");return}
   if(ws){ws.onclose=null;ws.close();ws=null}
   note("Cargando…");
   let data;
@@ -149,7 +153,9 @@ function live(){
 $("gear").onclick=()=>{$("key").value=key;$("dlg").showModal()};
 $("liqbtn").onclick=()=>{showLiq=!showLiq;store.set("liq",showLiq?"1":"0");ui();drawLiq()};
 $("save").onclick=()=>{key=$("key").value.trim();store.set("td_key",key);$("dlg").close();if(cat!=="cripto")load()};
-ui();load();
+ui();
+try{initChart()}catch(e){note("Error del gráfico: "+e.message)}
+load();
 </script>
 </body>
 </html>
